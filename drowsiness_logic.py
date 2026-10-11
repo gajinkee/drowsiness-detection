@@ -48,3 +48,6 @@ class ClosureTracker:
         if self._closed_since is None:
             return 0.0
         return max(0.0, now - self._closed_since)
+
+    def reset(self):
+        self._closed_since = None
