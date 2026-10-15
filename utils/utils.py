@@ -62,17 +62,18 @@ def draw_hud(frame, status: str, ear: float | None, closure: float, alert: bool)
         cv2.LINE_AA,
     )
 
-def draw_face_box(frame, face_landmarks):
+def draw_face_box(frame, face_landmarks, label="Face detected", alert=False):
     h, w = frame.shape[:2]
 
-    xs = [int(point.x * w) for point in face_landmarks.landmark]
-    ys = [int(point.y * h) for point in face_landmarks.landmark]
+    xs = [int(point.x * w) for point in face_landmarks]
+    ys = [int(point.y * h) for point in face_landmarks]
 
     x1, x2 = max(0, min(xs)), min(w - 1, max(xs))
     y1, y2 = max(0, min(ys)), min(h - 1, max(ys))
 
-    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+    color = (0, 0, 255) if alert else (0, 255, 0)
+    cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
     cv2.putText(
-        frame, "Face detected", (x1, max(25, y1 - 10)),
-        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2
+        frame, label, (x1, max(25, y1 - 10)),
+        cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2
     )

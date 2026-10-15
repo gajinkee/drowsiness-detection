@@ -39,20 +39,29 @@ def main() -> int:
             now = time.monotonic()
 
             ear_result = ear_detector.predict(frame, now)
-            cnn_result = cnn_detector.predict(frame, now)
-            if ear_result["landmarks"] is not None:
-                draw_face_box(frame, ear_result["landmarks"])
+            face_regions = [
+                (face["id"], face["box"]) for face in ear_result["faces"]
+            ]
+            cnn_result = cnn_detector.predict(frame, now, face_regions)
+            cnn_faces = {
+                face["id"]: face for face in cnn_result["faces"]
+            }
 
-            ear_alert = ear_result["alert"]
-            cnn_alert = cnn_result["alert"]
-            alert = ear_alert or cnn_alert
+            face_alerts = []
+            for face in ear_result["faces"]:
+                cnn_face = cnn_faces[face["id"]]
+                face_alert = face["alert"] or cnn_face["alert"]
+                face_alerts.append(face_alert)
+
+            alert = any(face_alerts)
+            face_count = len(ear_result["faces"])
 
             if alert:
-                status = "DROWSINESS ALERT - TAKE A BREAK"
-            elif not ear_result["face_detected"] and cnn_result["probability"] is None:
+                status = f"DROWSINESS ALERT - {sum(face_alerts)}/{face_count} FACES"
+            elif face_count == 0:
                 status = "NO FACE DETECTED"
             else:
-                status = "MONITORING"
+                status = f"MONITORING {face_count} FACE(S)"
 
             if alert and not alert_active:
                 sys.stdout.write("\a")
@@ -67,11 +76,13 @@ def main() -> int:
                 alert,
             )
 
-            probability = cnn_result["probability"]
+            probabilities = [
+                face["probability"] for face in cnn_result["faces"]
+            ]
             cnn_text = (
                 "CNN fatigue: --"
-                if probability is None
-                else f"CNN fatigue: {probability:.1%}"
+                if not probabilities
+                else f"CNN fatigue: {max(probabilities):.1%} max"
             )
 
             cv2.putText(
@@ -80,10 +91,20 @@ def main() -> int:
                 (38, 150),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.58,
-                (0, 0, 255) if cnn_alert else (229, 234, 231),
+                (0, 0, 255) if alert else (229, 234, 231),
                 2,
                 cv2.LINE_AA,
             )
+
+            for face, face_alert in zip(ear_result["faces"], face_alerts):
+                probability = cnn_faces[face["id"]]["probability"]
+                label = (
+                    f"P{face['id']} EAR {face['ear']:.2f} "
+                    f"CNN {probability:.0%}"
+                )
+                if face_alert:
+                    label += " ALERT"
+                draw_face_box(frame, face["landmarks"], label, face_alert)
 
             cv2.imshow("Student Drowsiness POC", frame)
 

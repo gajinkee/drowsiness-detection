@@ -1,6 +1,6 @@
 import unittest
 
-from drowsiness_logic import ClosureTracker, eye_aspect_ratio
+from drowsiness_logic import ClosureTracker, FaceTrackManager, eye_aspect_ratio
 
 
 class EyeAspectRatioTests(unittest.TestCase):
@@ -36,6 +36,25 @@ class ClosureTrackerTests(unittest.TestCase):
         tracker.update(0.3, 4.5)
 
         self.assertEqual(tracker.duration(5.0), 0.0)
+
+
+class FaceTrackManagerTests(unittest.TestCase):
+    def test_preserves_ids_when_detection_order_changes(self):
+        manager = FaceTrackManager()
+
+        first_ids = manager.assign([(0.2, 0.5), (0.8, 0.5)])
+        second_ids = manager.assign([(0.79, 0.5), (0.21, 0.5)])
+
+        self.assertEqual(second_ids, [first_ids[1], first_ids[0]])
+
+    def test_assigns_new_id_after_face_disappears(self):
+        manager = FaceTrackManager()
+        original_id = manager.assign([(0.2, 0.5)])[0]
+
+        manager.assign([])
+        new_id = manager.assign([(0.2, 0.5)])[0]
+
+        self.assertNotEqual(original_id, new_id)
 
 
 if __name__ == "__main__":

@@ -1,2 +1,5 @@
-mediapipe>=0.10.14,<0.10.22
-opencv-contrib-python>=4.9,<4.12
+mediapipe>=1.1.1
+opencv-contrib-python>=4.9
+Pillow>=10.0
+torch>=2.2
+torchvision>=0.17

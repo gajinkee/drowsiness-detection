@@ -51,3 +51,37 @@ class ClosureTracker:
 
     def reset(self):
         self._closed_since = None
+
+
+class FaceTrackManager:
+    """Associate nearby face centers with stable IDs across adjacent frames."""
+
+    def __init__(self, max_distance: float = 0.2):
+        self.max_distance = max_distance
+        self._tracks: dict[int, Point] = {}
+        self._next_id = 1
+
+    def assign(self, centers: Sequence[Point]) -> list[int]:
+        matches = []
+        for index, center in enumerate(centers):
+            for face_id, previous in self._tracks.items():
+                distance = hypot(center[0] - previous[0], center[1] - previous[1])
+                if distance <= self.max_distance:
+                    matches.append((distance, index, face_id))
+
+        assigned: dict[int, int] = {}
+        used_ids: set[int] = set()
+        for _, index, face_id in sorted(matches):
+            if index not in assigned and face_id not in used_ids:
+                assigned[index] = face_id
+                used_ids.add(face_id)
+
+        for index in range(len(centers)):
+            if index not in assigned:
+                assigned[index] = self._next_id
+                self._next_id += 1
+
+        self._tracks = {
+            assigned[index]: center for index, center in enumerate(centers)
+        }
+        return [assigned[index] for index in range(len(centers))]

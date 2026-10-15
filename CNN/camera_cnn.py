@@ -3,9 +3,16 @@ import cv2
 import time
 import torch
 import torch.nn as nn
-import mediapipe as mp
 from PIL import Image
 from torchvision.models import mobilenet_v3_small, MobileNet_V3_Small_Weights
+
+from drowsiness_logic import FaceTrackManager
+from mediapipe_tasks import (
+    VIDEO_MODE,
+    create_face_detector,
+    next_video_timestamp_ms,
+    to_mp_image,
+)
 
 
 MODEL_PATH = "models/drowsiness_cnn_20261011_184723.pth"
@@ -46,85 +53,113 @@ class CNNDetector:
         self.transform = MobileNet_V3_Small_Weights.DEFAULT.transforms()
         self.threshold = threshold
         self.alert_seconds = alert_seconds
-        self.drowsy_since = None
+        self.drowsy_since = {}
+        self.face_tracks = FaceTrackManager()
+        self.detector = create_face_detector(VIDEO_MODE)
+        self.last_timestamp_ms = None
 
-        self.detector = mp.solutions.face_detection.FaceDetection(
-            model_selection=0,
-            min_detection_confidence=0.5,
-        )
-
-    def predict(self, frame, now=None):
-        """Return CNN prediction for a BGR camera frame."""
+    def predict(self, frame, now=None, face_regions=None):
+        """Return predictions for face regions, or detect regions from the frame."""
         if now is None:
             now = time.monotonic()
 
         h, w = frame.shape[:2]
-        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        results = self.detector.process(rgb)
+        if face_regions is None:
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            timestamp_ms = next_video_timestamp_ms(
+                now, self.last_timestamp_ms
+            )
+            self.last_timestamp_ms = timestamp_ms
+            results = self.detector.detect_for_video(
+                to_mp_image(rgb), timestamp_ms
+            )
+            detections = results.detections
+            boxes = []
+            for detection in detections:
+                box = detection.bounding_box
+                x1 = max(0, box.origin_x)
+                y1 = max(0, box.origin_y)
+                x2 = min(w, box.origin_x + box.width)
+                y2 = min(h, box.origin_y + box.height)
+                if x2 > x1 and y2 > y1:
+                    boxes.append((x1, y1, x2, y2))
 
-        if not results.detections:
-            self.drowsy_since = None
+            centers = [
+                ((x1 + x2) / (2 * w), (y1 + y2) / (2 * h))
+                for x1, y1, x2, y2 in boxes
+            ]
+            face_ids = self.face_tracks.assign(centers)
+            face_regions = list(zip(face_ids, boxes))
+            rgb_for_crops = rgb
+        else:
+            rgb_for_crops = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+        valid_regions = [
+            (face_id, box)
+            for face_id, box in face_regions
+            if box[2] > box[0] and box[3] > box[1]
+        ]
+        active_ids = {face_id for face_id, _ in valid_regions}
+        self.drowsy_since = {
+            face_id: since
+            for face_id, since in self.drowsy_since.items()
+            if face_id in active_ids
+        }
+
+        if not valid_regions:
             return {
                 "label": "NO FACE",
                 "probability": None,
                 "drowsy": False,
                 "alert": False,
                 "box": None,
+                "faces": [],
             }
 
-        detection = max(
-            results.detections,
-            key=lambda d: (
-                d.location_data.relative_bounding_box.width
-                * d.location_data.relative_bounding_box.height
-            ),
-        )
-
-        box = detection.location_data.relative_bounding_box
-        x1 = max(0, int(box.xmin * w))
-        y1 = max(0, int(box.ymin * h))
-        x2 = min(w, int((box.xmin + box.width) * w))
-        y2 = min(h, int((box.ymin + box.height) * h))
-
-        if x2 <= x1 or y2 <= y1:
-            self.drowsy_since = None
-            return {
-                "label": "NO FACE",
-                "probability": None,
-                "drowsy": False,
-                "alert": False,
-                "box": None,
-            }
-
-        face = rgb[y1:y2, x1:x2]
-        image = self.transform(Image.fromarray(face))
-        image = image.unsqueeze(0).to(self.device)
+        images = [
+            self.transform(Image.fromarray(rgb_for_crops[y1:y2, x1:x2]))
+            for _, (x1, y1, x2, y2) in valid_regions
+        ]
+        batch = torch.stack(images).to(self.device)
 
         with torch.inference_mode():
-            probs = torch.softmax(self.model(image), dim=1)[0]
+            probabilities = torch.softmax(self.model(batch), dim=1)
+
+        faces = []
+        for (face_id, box), probs in zip(valid_regions, probabilities):
             probability = probs[self.fatigue_idx].item()
+            drowsy = probability >= self.threshold
+            if drowsy:
+                if face_id not in self.drowsy_since:
+                    self.drowsy_since[face_id] = now
+            else:
+                self.drowsy_since.pop(face_id, None)
 
-        drowsy = probability >= self.threshold
+            alert = (
+                face_id in self.drowsy_since
+                and now - self.drowsy_since[face_id] >= self.alert_seconds
+            )
+            faces.append({
+                "id": face_id,
+                "label": "DROWSINESS ALERT" if alert else (
+                    "DROWSY" if drowsy else "ACTIVE"
+                ),
+                "probability": probability,
+                "drowsy": drowsy,
+                "alert": alert,
+                "box": box,
+            })
 
-        if drowsy:
-            if self.drowsy_since is None:
-                self.drowsy_since = now
-        else:
-            self.drowsy_since = None
-
-        alert = (
-            self.drowsy_since is not None
-            and now - self.drowsy_since >= self.alert_seconds
+        primary = max(
+            faces,
+            key=lambda face: (
+                face["box"][2] - face["box"][0]
+            ) * (face["box"][3] - face["box"][1]),
         )
-
         return {
-            "label": "DROWSINESS ALERT" if alert else (
-                "DROWSY" if drowsy else "ACTIVE"
-            ),
-            "probability": probability,
-            "drowsy": drowsy,
-            "alert": alert,
-            "box": (x1, y1, x2, y2),
+            **primary,
+            "alert": any(face["alert"] for face in faces),
+            "faces": faces,
         }
 
     def close(self):
@@ -149,23 +184,24 @@ def main():
             frame = cv2.flip(frame, 1)
             result = detector.predict(frame)
 
-            box = result["box"]
-            if box is not None:
+            for face in result["faces"]:
+                box = face["box"]
                 cv2.rectangle(
                     frame, box[:2], box[2:],
-                    (0, 0, 255) if result["drowsy"] else (0, 255, 0),
+                    (0, 0, 255) if face["drowsy"] else (0, 255, 0),
                     2,
                 )
-
-            probability = result["probability"]
-            prob_text = "--" if probability is None else f"{probability:.2f}"
-            color = (0, 0, 255) if result["alert"] else (0, 255, 0)
-
-            cv2.putText(
-                frame, f"{result['label']} ({prob_text})",
-                (20, 40), cv2.FONT_HERSHEY_SIMPLEX,
-                0.8, color, 2,
-            )
+                probability = face["probability"]
+                color = (0, 0, 255) if face["alert"] else (0, 255, 0)
+                cv2.putText(
+                    frame,
+                    f"P{face['id']} {face['label']} ({probability:.2f})",
+                    (box[0], max(25, box[1] - 8)),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.6,
+                    color,
+                    2,
+                )
 
             cv2.imshow("CNN Drowsiness Detection", frame)
             if cv2.waitKey(1) & 0xFF in (ord("q"), 27):

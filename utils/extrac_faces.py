@@ -1,7 +1,14 @@
 
 from pathlib import Path
 import cv2
-import mediapipe as mp
+
+from mediapipe_tasks import (
+    FACE_DETECTOR_FULL_RANGE_MODEL,
+    FACE_DETECTOR_FULL_RANGE_URL,
+    IMAGE_MODE,
+    create_face_detector,
+    to_mp_image,
+)
 
 INPUT_DIR = Path("data")
 OUTPUT_DIR = Path("data_faces")
@@ -11,9 +18,10 @@ CLASSES = ["active", "fatigue"]
 # Expand the detected face box to retain more facial context.
 PADDING = 0.25
 
-face_detector = mp.solutions.face_detection.FaceDetection(
-    model_selection=1,
-    min_detection_confidence=0.5
+face_detector = create_face_detector(
+    IMAGE_MODE,
+    model_path=FACE_DETECTOR_FULL_RANGE_MODEL,
+    model_url=FACE_DETECTOR_FULL_RANGE_URL,
 )
 
 extensions = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
@@ -44,7 +52,7 @@ for split in SPLITS:
 
             height, width = image.shape[:2]
             rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-            results = face_detector.process(rgb)
+            results = face_detector.detect(to_mp_image(rgb))
 
             if not results.detections:
                 skipped += 1
@@ -53,17 +61,14 @@ for split in SPLITS:
             # If multiple faces exist, use the largest detected face.
             detection = max(
                 results.detections,
-                key=lambda d: (
-                    d.location_data.relative_bounding_box.width
-                    * d.location_data.relative_bounding_box.height
-                )
+                key=lambda d: d.bounding_box.width * d.bounding_box.height,
             )
 
-            box = detection.location_data.relative_bounding_box
-            x1 = int(box.xmin * width)
-            y1 = int(box.ymin * height)
-            x2 = int((box.xmin + box.width) * width)
-            y2 = int((box.ymin + box.height) * height)
+            box = detection.bounding_box
+            x1 = max(0, box.origin_x)
+            y1 = max(0, box.origin_y)
+            x2 = min(width, box.origin_x + box.width)
+            y2 = min(height, box.origin_y + box.height)
 
             pad_x = int((x2 - x1) * PADDING)
             pad_y = int((y2 - y1) * PADDING)
