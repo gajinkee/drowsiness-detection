@@ -65,7 +65,7 @@ def create_face_landmarker() -> FaceLandmarker:
             FACE_LANDMARKER_MODEL, _FACE_LANDMARKER_URL
         ),
         running_mode=VIDEO_MODE,
-        num_faces=10,
+        num_faces=1,
         min_face_detection_confidence=0.5,
         min_tracking_confidence=0.5,
     )

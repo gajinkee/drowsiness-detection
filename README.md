@@ -2,8 +2,8 @@
 
 A local USB-webcam prototype that estimates student drowsiness using two approaches:
 
-- **Baseline — Eye Aspect Ratio (EAR):** Uses the MediaPipe Face Landmarker task to estimate eye openness for up to 10 faces and triggers an independent alert when both eyes remain closed for a sustained period.
-- **Improvement — CNN detection:** Uses a fine-tuned MobileNetV3-Small model to classify each detected face crop as `active` or `fatigue`. A sustained high fatigue probability triggers an independent alert.
+- **Baseline — Eye Aspect Ratio (EAR):** Uses the MediaPipe Face Landmarker task to estimate eye openness for one face and triggers an independent alert when both eyes remain closed for a sustained period.
+- **Improvement — CNN detection:** Uses a fine-tuned MobileNetV3-Small model to classify the detected face crop as `active` or `fatigue`. A sustained high fatigue probability triggers an independent alert.
 
 The system is intended for a supervised classroom prototype, not medical use, grading, attendance, discipline, or monitoring students without informed consent.
 
@@ -92,7 +92,7 @@ This tests the CNN independently of the EAR detector.
 The standalone CNN pipeline works as follows:
 
 1. OpenCV captures a webcam frame.
-2. The MediaPipe Face Detector task detects all faces in the frame and extracts each face region.
+2. The MediaPipe Face Detector task detects the largest face in the frame and extracts its region.
 3. The face crop is preprocessed using the MobileNetV3-Small input transforms.
 4. The trained CNN predicts probabilities for `active` and `fatigue`.
 5. If the fatigue probability stays at or above `0.65` for `1.5` seconds, a drowsiness alert is triggered.
@@ -101,8 +101,8 @@ The CNN processes frames locally and does not need to save webcam images.
 
 ## What It Does
 
-- **EAR detector:** Evaluates up to 10 faces and requires both eyes in a face to remain below the eye-openness threshold. Each face has its own closure timer.
-- **CNN detector:** Estimates fatigue independently for each face crop and triggers an alert when that face's probability threshold is sustained.
+- **EAR detector:** Evaluates one face and requires both eyes to remain below the eye-openness threshold. The face has its own closure timer.
+- **CNN detector:** Estimates fatigue from the largest face crop and triggers an alert when its probability threshold is sustained.
 - **Combined detector:** Raises an alert if either detector triggers.
 - **No face detected:** Displays a no-face status when neither detector can detect a face. This is not evidence of drowsiness.
 - **Privacy:** Camera frames are processed in memory; the prototype does not save or transmit video or facial landmarks by default.

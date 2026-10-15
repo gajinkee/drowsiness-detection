@@ -53,7 +53,7 @@ class EARDetector:
         self.last_timestamp_ms = timestamp_ms
         results = self.face_landmarker.detect_for_video(image, timestamp_ms)
 
-        detected_faces = results.face_landmarks
+        detected_faces = results.face_landmarks[:1]
         if not detected_faces:
             self.trackers.clear()
             self.tracks.assign([])

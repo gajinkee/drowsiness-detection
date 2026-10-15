@@ -57,11 +57,11 @@ def main() -> int:
             face_count = len(ear_result["faces"])
 
             if alert:
-                status = f"DROWSINESS ALERT - {sum(face_alerts)}/{face_count} FACES"
+                status = f"DROWSINESS ALERT - {sum(face_alerts)}/{face_count} FACE"
             elif face_count == 0:
                 status = "NO FACE DETECTED"
             else:
-                status = f"MONITORING {face_count} FACE(S)"
+                status = "MONITORING 1 FACE"
 
             if alert and not alert_active:
                 sys.stdout.write("\a")

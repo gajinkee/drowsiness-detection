@@ -75,7 +75,13 @@ class CNNDetector:
             )
             detections = results.detections
             boxes = []
-            for detection in detections:
+            if detections:
+                detection = max(
+                    detections,
+                    key=lambda item: (
+                        item.bounding_box.width * item.bounding_box.height
+                    ),
+                )
                 box = detection.bounding_box
                 x1 = max(0, box.origin_x)
                 y1 = max(0, box.origin_y)
@@ -99,6 +105,16 @@ class CNNDetector:
             for face_id, box in face_regions
             if box[2] > box[0] and box[3] > box[1]
         ]
+        if len(valid_regions) > 1:
+            valid_regions = [
+                max(
+                    valid_regions,
+                    key=lambda region: (
+                        (region[1][2] - region[1][0])
+                        * (region[1][3] - region[1][1])
+                    ),
+                )
+            ]
         active_ids = {face_id for face_id, _ in valid_regions}
         self.drowsy_since = {
             face_id: since
